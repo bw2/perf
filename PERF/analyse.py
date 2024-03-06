@@ -99,6 +99,7 @@ def analyse_fasta(args):
 
     plot_data = dict()
     with open(repeatsOutFile, 'r') as repFile:
+        header_line = next(repFile)
         for line in repFile:
             line = line.strip()
             if line.startswith('#'):

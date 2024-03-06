@@ -143,12 +143,22 @@ def build_rep_set(repeat_file, length_cutoff=None, unit_cutoff=None):
 
 
 
-def get_ssrs(seq_record, repeats_info, out):
+def get_ssrs(seq_record, repeats_info, out, out2, min_units=None, write_header=False):
     """Native function that identifies repeats in fasta files."""
     if type(out) == str:
         out_file = open(out, 'w')
     else:
         out_file = out
+
+    if type(out2) == str:
+        out_file2 = open(out2, 'w')
+    else:
+        out_file2 = out2
+        
+    # chr1    10000   10108   AACCCT  108     +       18      TAACCC
+    if write_header:
+        print("Writing header")
+        print("chrom", "start_0based", "end", "canonical_motif", "size_bp", "strand", "repeats", "motif", sep="\t", file=out_file)
     length_cutoffs = repeats_info['cutoff']
     input_seq = str(seq_record.seq).upper()
     input_seq_length = len(input_seq)
@@ -174,7 +184,9 @@ def get_ssrs(seq_record, repeats_info, out):
                         match = False
                         match_length = sub_stop - sub_start
                         num_units = int(match_length/motif_length)
-                        print(seq_record.id, sub_start, sub_stop, rep_class, match_length, strand, num_units, sub_seq[:motif_length], sep="\t", file=out_file)
+                        if not min_units or num_units >= min_units:
+                            print(seq_record.id, sub_start, sub_stop, rep_class, match_length, strand, num_units, sub_seq[:motif_length], sep="\t", file=out_file)
+                            print(seq_record.id, sub_start, sub_stop, sub_seq[:motif_length], ".", sep="\t", file=out_file2)
                         sub_start = sub_stop - fallback
                     elif input_seq[j] == repeat_seq[i]:
                         sub_stop += 1
@@ -185,12 +197,16 @@ def get_ssrs(seq_record, repeats_info, out):
                         match = False
                         match_length = sub_stop - sub_start
                         num_units = int(match_length/motif_length)
-                        print(seq_record.id, sub_start, sub_stop, rep_class, match_length, strand, num_units, sub_seq[:motif_length], sep="\t", file=out_file)
+                        if not min_units or num_units >= min_units:                        
+                            print(seq_record.id, sub_start, sub_stop, rep_class, match_length, strand, num_units, sub_seq[:motif_length], sep="\t", file=out_file)
+                            print(seq_record.id, sub_start, sub_stop, sub_seq[:motif_length], ".", sep="\t", file=out_file2)                            
                         sub_start = sub_stop - fallback
             else:
                 sub_start += 1
     if type(out) == str:
         out_file.close()
+    if type(out2) == str:        
+        out_file2.close()        
     
 
 def fasta_ssrs(args, repeats_info):
@@ -206,41 +222,44 @@ def fasta_ssrs(args, repeats_info):
     target_ids = get_targetids(args.filter_seq_ids, args.target_seq_ids)
     
     if args.threads > 1:
-        i = 0
         pool = multi.Pool(processes=args.threads)
-        for record in records:
-            out_name = './temp_%s.tsv' %(i)
-            i += 1
+        for i, record in enumerate(records):
+            out_name = './temp_%s.tsv' % (i)
+            out_name2 = './temp_%s.bed' % (i)
             if (args.info or args.analyse)==True:
                 for a in record.seq.upper():
                     try: seq_nucleotide_info[a] += 1
                     except KeyError: seq_nucleotide_info[a] = 1
             if  args.min_seq_length <= len(record.seq) <= args.max_seq_length and record.id in target_ids:
-                pool.apply_async(get_ssrs, (record, repeats_info, out_name,))
+                pool.apply_async(get_ssrs, (record, repeats_info, out_name, out_name2, args.min_units, i==0))
     
         pool.close() 
         pool.join()
 
         # Concat all the output files into one.
         temp_outs = tqdm(range(num_records), total=num_records)
-        for o in temp_outs:
-            name = './temp_%s.tsv' %(o)
-            temp_outs.set_description("Concatenating file: %d " %(o))
+        for i, o in enumerate(temp_outs):
+            name = './temp_%s.tsv' % (o)
+            temp_outs.set_description("Concatenating file: %d " % (o))
             with open(name, 'r') as fh:
+                if i == 0:
+                    header_line = next(fh)                    
+                    print(header_line.strip(), file=args.output)
+
                 for line in fh:
                     print(line.strip(), file=args.output)
             del_file(name)
     
     elif args.threads == 1:
         records = tqdm(records, total=num_records)
-        for record in records:
+        for i, record in enumerate(records):
             records.set_description("Processing %s" %(record.id))
             if (args.info or args.analyse)==True:
                 for a in record.seq.upper():
                     try: seq_nucleotide_info[a] += 1
                     except KeyError: seq_nucleotide_info[a] = 1
             if  args.min_seq_length <= len(record.seq) <= args.max_seq_length and record.id in target_ids:
-                get_ssrs(record, repeats_info, args.output)
+                get_ssrs(record, repeats_info, args.output, args.output2, args.min_units, write_header=i==0)
 
     if (args.info or args.analyse)==True:
         line = "#File_name: %s\n#Total_sequences: %d\n#Total_bases: %d\n#GC: %f"\

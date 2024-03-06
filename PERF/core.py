@@ -47,7 +47,7 @@ def getArgs():
     optional.add_argument('--include-atomic', action='store_true', default=False, help='An option to include factor atomic repeats for minimum motif sizes greater than 1.')
 
     #Cutoff options (min_length or min_units)    
-    cutoff_group = optional.add_mutually_exclusive_group()
+    cutoff_group = optional.add_argument_group("Cutoffs")
     cutoff_group.add_argument('-l', '--min-length', type=int, metavar='<INT>', help='Minimum length cutoff of repeat')
     cutoff_group.add_argument('-u', '--min-units', metavar='INT or FILE', help="Minimum number of repeating units to be considered. Can be an integer or a file specifying cutoffs for different motif sizes.")
     
@@ -84,7 +84,8 @@ def getArgs():
     
     if args.output.name == "<stdout>":
         args.output = open(splitext(args.input)[0] + '_perf.tsv', 'w')
-
+    args.output2 = open(splitext(args.input)[0] + '_perf.bed', 'w')
+        
     return args
 
 
@@ -115,13 +116,20 @@ def main():
     """
     args = getArgs()
 
-
+    
+    if args.min_units:
+        try:
+            args.min_units = int(args.min_units)
+        except ValueError:
+            pass
+        
     # User specifies motif size range instead of giving a repeats file
     if args.repeats is None:
         min_motif_size = args.min_motif_size
         max_motif_size = args.max_motif_size
         sizes = list(range(min_motif_size, max_motif_size+1))
         args.repeats = generate_repeats(sizes, args.include_atomic)
+
     # User specifies minimum length
     if args.min_length:
         ssr_native(args, length_cutoff=args.min_length)
@@ -130,7 +138,6 @@ def main():
     elif args.min_units:
         unit_cutoff = dict()
         try:
-            args.min_units = int(args.min_units)
             min_motif_size = args.min_motif_size
             max_motif_size = args.max_motif_size
             for m in range(min_motif_size, max_motif_size+1): unit_cutoff[m] = args.min_units
